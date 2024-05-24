@@ -63,13 +63,11 @@ class EqualWeightPortfolio:
         assets = df.columns[df.columns != self.exclude]
         self.portfolio_weights = pd.DataFrame(index=df.index, columns=df.columns)
 
-        """
-        TODO: Complete Task 1 Below
-        """
+        equal_weight = 1.0 / len(assets)
 
-        """
-        TODO: Complete Task 1 Above
-        """
+        for asset in assets:
+            self.portfolio_weights[asset] = equal_weight
+
         self.portfolio_weights.ffill(inplace=True)
         self.portfolio_weights.fillna(0, inplace=True)
 
@@ -108,20 +106,19 @@ class RiskParityPortfolio:
         self.lookback = lookback
 
     def calculate_weights(self):
-        # Get the assets by excluding the specified column
         assets = df.columns[df.columns != self.exclude]
-
-        # Calculate the portfolio weights
         self.portfolio_weights = pd.DataFrame(index=df.index, columns=df.columns)
 
-        """
-        TODO: Complete Task 2 Below
-        """
+        for i in range(self.lookback+1, len(df)):
+            date = df.index[i]
+            rolling_window = df_returns[assets].iloc[i - self.lookback:i]
+            rolling_volatility = rolling_window.std()
 
-        """
-        TODO: Complete Task 2 Above
-        """
+            inv_vol_weights = 1.0 / rolling_volatility
+            norm_inv_vol_weights = inv_vol_weights / inv_vol_weights.sum()
+            self.portfolio_weights.loc[date, assets] = norm_inv_vol_weights
 
+        self.portfolio_weights[self.exclude] = 0
         self.portfolio_weights.ffill(inplace=True)
         self.portfolio_weights.fillna(0, inplace=True)
 
@@ -145,6 +142,7 @@ class RiskParityPortfolio:
             self.calculate_portfolio_returns()
 
         return self.portfolio_weights, self.portfolio_returns
+    
 
 
 """
@@ -177,50 +175,41 @@ class MeanVariancePortfolio:
         self.portfolio_weights.fillna(0, inplace=True)
 
     def mv_opt(self, R_n, gamma):
-        Sigma = R_n.cov().values
-        mu = R_n.mean().values
-        n = len(R_n.columns)
+        Sigma = R_n.cov().values  # 协方差矩阵
+        mu = R_n.mean().values  # 预期收益向量
+        n = len(R_n.columns)  # 资产数量
 
+    # 设置 Gurobi 环境
         with gp.Env(empty=True) as env:
             env.setParam("OutputFlag", 0)
             env.setParam("DualReductions", 0)
             env.start()
+
             with gp.Model(env=env, name="portfolio") as model:
-                """
-                TODO: Complete Task 3 Below
-                """
+                # 添加决策变量
+                w = model.addMVar(shape=n, lb=0, name="w")  # 添加下界为0实现"long-only constraint"
 
-                # Sample Code: Initialize Decision w and the Objective
-                # NOTE: You can modify the following code
-                w = model.addMVar(n, name="w", ub=1)
-                model.setObjective(w.sum(), gp.GRB.MAXIMIZE)
+                # 设置目标函数
+                obj = w @ mu - gamma / 2 * (w @ Sigma @ w)  # 构建目标函数
+                model.setObjective(obj, sense=gp.GRB.MAXIMIZE)  # 设置为最大化
 
-                """
-                TODO: Complete Task 3 Below
-                """
+                # 添加约束条件
+                model.addConstr(w.sum() == 1, name="sum_to_one")  # 权重和为1
+
+                # 优化模型
                 model.optimize()
 
-                # Check if the status is INF_OR_UNBD (code 4)
-                if model.status == gp.GRB.INF_OR_UNBD:
-                    print(
-                        "Model status is INF_OR_UNBD. Reoptimizing with DualReductions set to 0."
-                    )
+                # 检查模型状态
+                if model.status == gp.GRB.OPTIMAL:
+                    # 提取解决方案
+                    return w.X
                 elif model.status == gp.GRB.INFEASIBLE:
-                    # Handle infeasible model
                     print("Model is infeasible.")
                 elif model.status == gp.GRB.INF_OR_UNBD:
-                    # Handle infeasible or unbounded model
                     print("Model is infeasible or unbounded.")
-
-                if model.status == gp.GRB.OPTIMAL or model.status == gp.GRB.SUBOPTIMAL:
-                    # Extract the solution
-                    solution = []
-                    for i in range(n):
-                        var = model.getVarByName(f"w[{i}]")
-                        # print(f"w {i} = {var.X}")
-                        solution.append(var.X)
-
-        return solution
+                else:
+                    print("Optimization was unsuccessful.")
+                    return [0] * n  # 返回全0数组作为失败的默认结果
 
     def calculate_portfolio_returns(self):
         # Ensure weights are calculated
@@ -428,7 +417,6 @@ class AssignmentJudge:
         score += self.check_answer_mv_list(self.mv_list)
         return score
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Introduction to Fintech Assignment 3 Part 1"
@@ -469,6 +457,7 @@ if __name__ == "__main__":
                 judge.check_answer_eqw(judge.eqw)
             if "rp" in args.score:
                 judge.check_answer_rp(judge.rp)
+
             if "mv" in args.score:
                 judge.check_answer_mv_list(judge.mv_list)
         elif "all" in args.score:

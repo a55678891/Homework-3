@@ -55,7 +55,7 @@ class MyPortfolio:
     NOTE: You can modify the initialization function
     """
 
-    def __init__(self, price, exclude, lookback=50, gamma=0):
+    def __init__(self, price, exclude, lookback=300, gamma=0):
         self.price = price
         self.returns = price.pct_change().fillna(0)
         self.exclude = exclude
@@ -67,20 +67,35 @@ class MyPortfolio:
         assets = self.price.columns[self.price.columns != self.exclude]
 
         # Calculate the portfolio weights
-        self.portfolio_weights = pd.DataFrame(
-            index=self.price.index, columns=self.price.columns
-        )
+        self.portfolio_weights = pd.DataFrame(index=self.price.index, columns=self.price.columns)
 
-        """
-        TODO: Complete Task 4 Below
-        """
+        # Rolling window for calculating weights
+        for i in range(self.lookback +1, len(self.price)):            
+            window = self.returns.iloc[i-self.lookback:i]
 
-        """
-        TODO: Complete Task 4 Above
-        """
+            # Calculate momentum and volatility
+            mean_returns = window[assets].mean()
+            volatilities = window[assets].std()
+            combined_scores = mean_returns / (volatilities + 1e-8)  # Add small number to avoid division by zero
+
+            # Calculate additional factors (quality and growth)
+            quality = window[assets].apply(lambda x: x.mean() / (x.std() + 1e-8), axis=0)  # Add small number to avoid division by zero
+
+            # Handle zero or negative values in growth calculation
+            growth = window[assets].apply(lambda x: np.log(x[-1] / x[0]) if x[-1] > 0 and x[0] > 0 else 0, axis=0)
+            # Combine scores
+            combined_scores += quality + growth
+
+            # Normalize weights to sum to 1
+            weights = combined_scores / combined_scores.sum()
+            weights = np.clip(weights, 0, 1)  # Ensure weights are non-negative
+            weights /= weights.sum()  # Normalize weights again
+
+            self.portfolio_weights.iloc[i][assets] = weights
 
         self.portfolio_weights.ffill(inplace=True)
         self.portfolio_weights.fillna(0, inplace=True)
+
 
     def calculate_portfolio_returns(self):
         # Ensure weights are calculated
